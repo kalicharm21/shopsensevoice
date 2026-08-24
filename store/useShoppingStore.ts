@@ -28,12 +28,13 @@ export interface SuggestionItem {
   };
 }
 
-interface ShoppingStoreState {
+export interface ShoppingStoreState {
   items: CartItem[];
   savedItems: CartItem[];
   shoppingLists: ShoppingList[];
   activeListId: string;
   pantryItems: PantryItem[];
+  purchaseHistory: PantryItem[];
   activeSuggestions: SuggestionItem[];
   recommendations: Recommendation[];
   activities: AIActivity[];
@@ -90,6 +91,9 @@ export const useShoppingStore = create<ShoppingStoreState>()(
         { id: 'p-2', name: 'Fresh Spinach', category: 'Produce', quantity: 1, unit: 'bunch', estimatedRemaining: 80, status: 'expiring_soon', predictedRunoutDate: 'In 2 days', averageConsumptionRate: 'Cook within 48 hrs' },
         { id: 'p-3', name: 'Basmati Rice', category: 'Pantry', quantity: 5, unit: 'kg', estimatedRemaining: 75, status: 'good', predictedRunoutDate: 'In 3 weeks', averageConsumptionRate: '1 kg/week' }
       ],
+      get purchaseHistory() {
+        return get().pantryItems;
+      },
       activeSuggestions: [],
       recommendations: [
         {
@@ -211,7 +215,6 @@ export const useShoppingStore = create<ShoppingStoreState>()(
         const currentItems = get().items;
         if (currentItems.length === 0) return;
 
-        // Move items to pantry after checkout
         const newPantry = currentItems.map((item) => ({
           id: `pantry-${Date.now()}-${item.id}`,
           name: item.name,
@@ -365,10 +368,7 @@ export const useShoppingStore = create<ShoppingStoreState>()(
         });
       },
 
-      checkAndTriggerDepletionAlerts: () => {
-        // Runs purchase interval check
-      },
-
+      checkAndTriggerDepletionAlerts: () => {},
       setActivePlan: (plan) => set({ activePlan: plan })
     }),
     {
