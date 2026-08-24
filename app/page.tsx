@@ -12,6 +12,7 @@ import { ActivityView } from '@/components/ActivityView';
 import { VoiceModal } from '@/components/VoiceModal';
 import { WhyModal } from '@/components/WhyModal';
 import { PlanModal } from '@/components/PlanModal';
+import { STORE_CATALOG } from '@/lib/catalogData';
 import { DEMO_PRODUCTS } from '@/data/products';
 import { 
   ShoppingList, 
@@ -22,10 +23,9 @@ import {
   UserProfile 
 } from '@/types';
 
-export default function CompleteVoiceCart() {
+export default function ShopSenseApp() {
   const { 
     items, 
-    purchaseHistory, 
     checkAndTriggerDepletionAlerts, 
     addItem 
   } = useShoppingStore();
@@ -48,7 +48,7 @@ export default function CompleteVoiceCart() {
       budget: 1500,
       items: [
         { id: 'i-1', name: 'Farm Fresh Potatoes', category: 'Produce', quantity: 2, unit: 'kg', estimatedPrice: 80, completed: false, brand: 'Fresh' },
-        { id: 'i-2', name: 'Toned Milk', category: 'Dairy', quantity: 2, unit: 'L', estimatedPrice: 136, completed: true, brand: 'Amul' }
+        { id: 'i-2', name: 'Toned Milk', category: 'Dairy', quantity: 2, unit: 'litre', estimatedPrice: 108, completed: true, brand: 'Amul' }
       ]
     }
   ]);
@@ -69,9 +69,9 @@ export default function CompleteVoiceCart() {
     aiExplanation: 'Prioritized seasonal potatoes and tomatoes while applying pantry bread and spices.',
     neededItems: [
       { name: 'Farm Fresh Potatoes', quantity: 2, unit: 'kg', estimatedPrice: 80, category: 'Produce' },
-      { name: 'Fresh Tomatoes', quantity: 1, unit: 'kg', estimatedPrice: 60, category: 'Produce' },
-      { name: 'Whole Wheat Pav Buns', quantity: 2, unit: 'packs', estimatedPrice: 90, category: 'Bakery' },
-      { name: 'Butter', quantity: 1, unit: 'pack', estimatedPrice: 150, category: 'Dairy' }
+      { name: 'Fresh Tomatoes', quantity: 1, unit: 'kg', estimatedPrice: 35, category: 'Produce' },
+      { name: 'Whole Wheat Pav Buns', quantity: 2, unit: 'packs', estimatedPrice: 60, category: 'Bakery' },
+      { name: 'Butter', quantity: 1, unit: 'pack', estimatedPrice: 56, category: 'Dairy' }
     ],
     alreadyHave: [
       { name: 'Pav Bhaji Masala', reason: 'Found in Pantry' },
@@ -88,11 +88,11 @@ export default function CompleteVoiceCart() {
       recommendationType: 'RUNNING_LOW',
       confidence: 0.95,
       reason: 'Milk consumption rate indicates your supply is 80% depleted.',
-      product: DEMO_PRODUCTS[6],
+      product: DEMO_PRODUCTS[6] || { id: 'p-6', name: 'Amul Taaza Milk', price: 54, unit: 'litre', category: 'Dairy', image: '🥛' },
       explanation: {
         usualIntervalDays: 3,
         daysSinceLastPurchase: 3,
-        typicalPriceRange: '₹65 - ₹72'
+        typicalPriceRange: '₹50 - ₹58'
       }
     },
     {
@@ -100,7 +100,7 @@ export default function CompleteVoiceCart() {
       recommendationType: 'BETTER_ALTERNATIVE',
       confidence: 0.91,
       reason: 'Unsweetened Almond Milk has 60% fewer calories with zero lactose.',
-      product: DEMO_PRODUCTS[0],
+      product: DEMO_PRODUCTS[0] || { id: 'p-0', name: 'Almond Milk', price: 140, unit: 'litre', category: 'Dairy', image: '🥛' },
       originalProduct: { name: 'Full Cream Milk', price: 85, category: 'Dairy' },
       savings: 15
     },
@@ -109,12 +109,12 @@ export default function CompleteVoiceCart() {
       recommendationType: 'SEASONAL',
       confidence: 0.88,
       reason: 'Cold-pressed mustard oil is locally sourced and on seasonal discount.',
-      product: DEMO_PRODUCTS[4],
+      product: DEMO_PRODUCTS[4] || { id: 'p-4', name: 'Cold-Pressed Mustard Oil', price: 180, unit: 'litre', category: 'Pantry', image: '🥥' },
       savings: 50
     }
   ]);
 
-  const [activities] = useState<AIActivity[]>([
+  const [activities, setActivities] = useState<AIActivity[]>([
     {
       id: 'act-1',
       timestamp: Date.now() - 3600000,
@@ -136,13 +136,17 @@ export default function CompleteVoiceCart() {
   ]);
 
   useEffect(() => {
-    checkAndTriggerDepletionAlerts();
+    if (typeof checkAndTriggerDepletionAlerts === 'function') {
+      checkAndTriggerDepletionAlerts();
+    }
   }, [checkAndTriggerDepletionAlerts]);
 
   const activeList = shoppingLists.find((l) => l.id === activeListId) || shoppingLists[0] || null;
+  const activeCatalog = STORE_CATALOG && STORE_CATALOG.length > 0 ? STORE_CATALOG : DEMO_PRODUCTS;
 
   return (
     <main className="min-h-screen w-full bg-[#FAF9F6] text-[#353535] antialiased overflow-x-hidden flex flex-col font-sans">
+      {/* Navigation Header */}
       <Navbar
         currentTab={activeTab}
         onNavigate={setActiveTab}
@@ -152,7 +156,9 @@ export default function CompleteVoiceCart() {
         unreadRecommendationsCount={recommendations.length}
       />
 
+      {/* Main View Port */}
       <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6">
+        {/* VIEW 1: HOME */}
         {activeTab === 'home' && (
           <HomeView
             user={user}
@@ -189,6 +195,7 @@ export default function CompleteVoiceCart() {
           />
         )}
 
+        {/* VIEW 2: SHOPPING LISTS */}
         {activeTab === 'lists' && (
           <ListsView
             lists={shoppingLists}
@@ -243,6 +250,7 @@ export default function CompleteVoiceCart() {
           />
         )}
 
+        {/* VIEW 3: PANTRY TRACKER */}
         {activeTab === 'pantry' && (
           <PantryView
             items={pantryItems}
@@ -278,6 +286,7 @@ export default function CompleteVoiceCart() {
           />
         )}
 
+        {/* VIEW 4: DISCOVER & RECOMMENDATIONS */}
         {activeTab === 'discover' && (
           <DiscoverView
             recommendations={recommendations}
@@ -303,10 +312,11 @@ export default function CompleteVoiceCart() {
           />
         )}
 
+        {/* VIEW 5: SMART HUB & LIVE DEALS */}
         {activeTab === 'search' && (
           <SmartHubView
             pantry={pantryItems}
-            catalog={DEMO_PRODUCTS}
+            catalog={activeCatalog as any}
             onAddSuggestionToList={(item) => {
               if (activeList) {
                 setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
@@ -329,11 +339,13 @@ export default function CompleteVoiceCart() {
           />
         )}
 
+        {/* VIEW 6: AUDIT LOG */}
         {activeTab === 'activity' && (
           <ActivityView activities={activities} />
         )}
       </div>
 
+      {/* Voice Assistant Modal */}
       <VoiceModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
@@ -341,44 +353,104 @@ export default function CompleteVoiceCart() {
         activeList={activeList}
         existingLists={shoppingLists}
         onApplyIntent={(res) => {
-          if (res.items && res.items.length > 0 && activeList) {
-            setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
-              ...l,
-              items: [
-                ...l.items,
-                ...res.items!.map(item => ({
-                  id: `voice-item-${Date.now()}-${Math.random()}`,
+          if (res.items && res.items.length > 0) {
+            const isPantryIntent = (res as any).action === 'ADD_PANTRY' || res.intent === ('ADD_PANTRY' as any);
+
+            if (isPantryIntent) {
+              // Add to Pantry Inventory
+              const newPantryEntries: PantryItem[] = res.items.map((item) => ({
+                id: `pantry-${Date.now()}-${Math.random()}`,
+                name: item.name,
+                category: item.category || 'Pantry',
+                quantity: item.quantity || 1,
+                unit: item.unit || 'pack',
+                estimatedRemaining: 100,
+                status: 'good',
+                lastUpdated: Date.now(),
+                averageConsumptionRate: 'Stocked via Voice'
+              }));
+
+              setPantryItems((prev) => [...newPantryEntries, ...prev]);
+              
+              setActivities((prev) => [
+                {
+                  id: `act-${Date.now()}`,
+                  timestamp: Date.now(),
+                  type: 'voice',
+                  title: 'Stocked Items in Pantry',
+                  description: `Voice assistant added ${res.items!.length} item(s) directly to your pantry.`,
+                  confidence: res.confidence || 0.95,
+                  dataUsed: ['Voice Parser', 'Pantry Inventory']
+                },
+                ...prev
+              ]);
+
+              setActiveTab('pantry');
+            } else {
+              // Add to Active Shopping List & Store Cart
+              if (activeList) {
+                setShoppingLists((prev) =>
+                  prev.map((l) =>
+                    l.id === activeList.id
+                      ? {
+                          ...l,
+                          items: [
+                            ...l.items,
+                            ...res.items!.map((item) => ({
+                              id: `voice-item-${Date.now()}-${Math.random()}`,
+                              name: item.name,
+                              category: item.category || 'Pantry',
+                              quantity: item.quantity || 1,
+                              unit: item.unit || 'pack',
+                              estimatedPrice: item.maxPrice || 60,
+                              brand: item.brand,
+                              completed: false,
+                              source: 'voice' as const,
+                            })),
+                          ],
+                        }
+                      : l
+                  )
+                );
+              }
+
+              res.items.forEach((item) =>
+                addItem({
                   name: item.name,
-                  category: item.category || 'Pantry',
                   quantity: item.quantity || 1,
                   unit: item.unit || 'pack',
-                  estimatedPrice: item.maxPrice || 60,
-                  brand: item.brand,
-                  completed: false,
-                  source: 'voice' as const
-                }))
-              ]
-            } : l));
+                  category: item.category || 'Pantry',
+                  price: item.maxPrice || 60,
+                  brand: item.brand || undefined,
+                })
+              );
 
-            res.items.forEach(item => addItem({
-              name: item.name,
-              quantity: item.quantity || 1,
-              unit: item.unit || 'pack',
-              category: item.category || 'Pantry',
-              price: item.maxPrice || 60,
-              brand: item.brand || undefined
-            }));
+              setActivities((prev) => [
+                {
+                  id: `act-${Date.now()}`,
+                  timestamp: Date.now(),
+                  type: 'voice',
+                  title: 'Voice Cart Addition',
+                  description: `Added ${res.items!.length} item(s) to ${activeList?.title || 'shopping list'}.`,
+                  confidence: res.confidence || 0.95,
+                  dataUsed: ['Voice Transcript', 'Grocery Classifier']
+                },
+                ...prev
+              ]);
 
-            setActiveTab('lists');
+              setActiveTab('lists');
+            }
           }
         }}
       />
 
+      {/* Why Modal */}
       <WhyModal
         recommendation={selectedWhyRec}
         onClose={() => setSelectedWhyRec(null)}
       />
 
+      {/* Plan Modal */}
       <PlanModal
         plan={activePlan}
         isOpen={isPlanModalOpen}

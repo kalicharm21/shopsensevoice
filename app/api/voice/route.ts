@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
+import { STORE_CATALOG, HEALTHY_SUBSTITUTES_MAP } from '@/lib/catalogData';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -10,23 +11,6 @@ const CHAT_MODELS = [
   'openai/gpt-oss-20b',
   'qwen/qwen3.6-27b'
 ];
-
-const HEALTHY_SUBSTITUTES_MAP: Record<
-  string,
-  { name: string; price: number; unit: string; category: string; image: string; reason: string }
-> = {
-  sugar: { name: 'Organic Jaggery Powder', price: 65, unit: 'kg', category: 'Pantry', image: '🍯', reason: 'Unrefined, mineral-rich natural sweetener' },
-  'white sugar': { name: 'Organic Jaggery Powder', price: 65, unit: 'kg', category: 'Pantry', image: '🍯', reason: 'Low-glycemic unrefined sweetener' },
-  milk: { name: 'Unsweetened Almond Milk', price: 140, unit: 'litre', category: 'Dairy', image: '🥛', reason: 'Lactose-free, gut-friendly plant milk' },
-  'dairy milk': { name: 'Unsweetened Oat Milk', price: 155, unit: 'litre', category: 'Dairy', image: '🥛', reason: 'Creamy plant-based dairy alternative' },
-  butter: { name: 'Cold-Pressed Olive Oil', price: 290, unit: 'bottle', category: 'Pantry', image: '🫒', reason: 'Heart-healthy monounsaturated fats' },
-  bread: { name: 'Artisan Sourdough Loaf', price: 85, unit: 'loaf', category: 'Bakery', image: '🍞', reason: 'Naturally fermented and gut-friendly' },
-  'white bread': { name: '100% Whole Wheat Bread', price: 55, unit: 'loaf', category: 'Bakery', image: '🍞', reason: 'Higher fiber with zero refined flour' },
-  rice: { name: 'Organic Brown Rice', price: 110, unit: 'kg', category: 'Pantry', image: '🌾', reason: 'High-fiber complex carbohydrate' },
-  oil: { name: 'Cold-Pressed Mustard Oil', price: 180, unit: 'litre', category: 'Pantry', image: '🥥', reason: 'Unrefined, nutrient-dense cooking oil' },
-  maida: { name: 'Organic Multigrain Atta', price: 75, unit: 'kg', category: 'Pantry', image: '🌾', reason: 'Zero refined flour, rich in dietary fiber' },
-  cola: { name: 'Sparkling Kombucha', price: 95, unit: 'bottle', category: 'Beverages', image: '🍵', reason: 'Probiotic-rich refreshing beverage' },
-};
 
 export async function POST(req: Request) {
   try {
@@ -44,7 +28,7 @@ export async function POST(req: Request) {
     const transcriptText = rawTranscript.trim();
     const currentMonth = new Date().toLocaleString('en-IN', { month: 'long' });
 
-    // 1. Resolve Multi-Turn Context
+    // 1. Multi-Turn Context Stitching
     let effectiveQuery = transcriptText;
     if (pendingItemContext) {
       if (/^\d+$/.test(transcriptText)) {
@@ -54,12 +38,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Ambiguity Detection (Only on Turn 1 when no pending context exists)
+    // 2. Ambiguity Detection (e.g. "Add apple" -> "How many kgs or pieces?")
+    const isPantryQuery = /pantry/i.test(effectiveQuery);
     const isBareSingleItem = /^(add|buy|get|need|daalo|kharido)\s+([a-zA-Z\s]+)$/i.test(effectiveQuery);
     const hasUnitsOrNumbers = /\d+|kg|kilo|litre|liter|packet|pack|bunch|dozen|gm|gram|bottle|can|box|pieces|piece/i.test(effectiveQuery);
     const isRecipeQuery = /ingredients|recipe|for making|bnani hai|dinner for|lunch for|dish|food/i.test(effectiveQuery);
 
-    if (!pendingItemContext && isBareSingleItem && !hasUnitsOrNumbers && !isRecipeQuery) {
+    if (!pendingItemContext && isBareSingleItem && !hasUnitsOrNumbers && !isRecipeQuery && !isPantryQuery) {
       const extractedItem = effectiveQuery.replace(/^(add|buy|get|need|daalo|kharido)\s+/i, '').trim();
       if (extractedItem && extractedItem.split(/\s+/).length <= 2) {
         return NextResponse.json({
@@ -76,10 +61,20 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Groq Universal Parsing & Decomposition Prompt
+    // 3. Groq Universal Agent Reasoning
     const systemPrompt = `You are a high-intelligence Voice Shopping Assistant for Indian grocery, recipes, household items, deals, and pantry restocks in INR (₹).
-Decompose culinary queries (e.g., "ingredients for Pav Bhaji", "Biryani for 4", "Pasta dinner") into 4-6 required grocery items with realistic units (kg, pack, bottle), estimated INR prices, and categories.
-Parse multi-item additions and numerical quantity updates cleanly.
+Strict Action Classifications:
+1. "ADD_PANTRY": User specifies adding or stocking items in their pantry/kitchen inventory (e.g. "Add 5 kg rice to pantry", "Stock milk in my pantry").
+2. "ADD_BUNDLE": Recipe decomposition for ANY dish (e.g., "Ingredients for Pav Bhaji", "Biryani for 4", "Pasta Alfredo"). Decompose into 4-6 required grocery items with realistic units (kg, pack, bottle, bunch), realistic market INR prices, and categories.
+3. "ADD": Explicit command to add grocery products to the shopping cart.
+4. "REMOVE": User requests deleting an item. Populate update_target { "name": string }.
+5. "SEARCH": When searching for products, brands, or budget ceilings (e.g. "Find green tea under ₹300", "Show me Tata Salt"). Populate search_filter { "query": string, "max_price": number | null }.
+6. "GET_DEALS": User asks for deals, sales, discounts, or offers.
+7. "GET_SEASONAL": User asks for seasonal fruits/vegetables for ${currentMonth}.
+8. "GET_RUNNING_LOW": User asks what needs restock.
+9. "SET_BUDGET": User sets a spending cap (e.g. "Set budget to ₹1500"). Populate budget_limit.
+10. "INFO": Conversational questions, coupons, or general inquiries. Keep items []. Provide spoken feedback.
+
 Output STRICT raw valid JSON only. Do not wrap in markdown backticks and never output <think> tags.
 
 Context:
@@ -90,15 +85,22 @@ Context:
 
 JSON Schema:
 {
-  "action": "ADD" | "ADD_BUNDLE" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO",
+  "action": "ADD" | "ADD_PANTRY" | "ADD_BUNDLE" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO",
   "clarificationRequired": false,
   "items": [
     { "name": string, "quantity": number, "unit": string, "price": number, "category": string, "image": string, "brand": string | null }
   ],
   "update_target": { "name": string, "quantity": number, "unit": string } | null,
-  "search_results": [],
-  "suggestions": [],
-  "budget_limit": null,
+  "search_filter": { "query": string | null, "max_price": number | null } | null,
+  "suggestions": [
+    {
+      "type": "sale_deal" | "seasonal" | "restock_alert" | "substitute",
+      "reason": string,
+      "discountBadge": string | null,
+      "item": { "name": string, "price": number, "originalPrice": number | null, "unit": string, "category": string, "image": string }
+    }
+  ],
+  "budget_limit": number | null,
   "ai_response_text": string
 }`;
 
@@ -108,7 +110,7 @@ JSON Schema:
         const response = await groq.chat.completions.create({
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Parse user input: "${effectiveQuery}"` },
+            { role: 'user', content: `Parse input: "${effectiveQuery}"` },
           ],
           model,
           temperature: 0.1,
@@ -129,27 +131,78 @@ JSON Schema:
       const lastBrace = cleaned.lastIndexOf('}');
       parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
     } catch {
+      const isPantry = /pantry/i.test(effectiveQuery);
       const qtyMatch = effectiveQuery.match(/(\d+(?:\.\d+)?)/);
       const parsedQty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
-      const itemName = pendingItemContext || effectiveQuery.replace(/\d+/g, '').replace(/add|kg|kilo|pack|piece|pieces|litre/gi, '').trim() || 'Item';
+      const itemName = pendingItemContext || effectiveQuery.replace(/\d+/g, '').replace(/add|kg|kilo|pack|piece|pieces|litre|to pantry|in pantry|pantry/gi, '').trim() || 'Item';
 
       parsed = {
-        action: 'ADD',
+        action: isPantry ? 'ADD_PANTRY' : 'ADD',
         clarificationRequired: false,
         items: [{
           name: itemName.charAt(0).toUpperCase() + itemName.slice(1),
           quantity: parsedQty,
           unit: effectiveQuery.includes('kg') ? 'kg' : effectiveQuery.includes('litre') ? 'litre' : 'pack',
           price: 60 * parsedQty,
-          category: 'Produce',
+          category: 'Pantry',
           image: '🛒',
           brand: null
         }],
-        ai_response_text: `Added ${parsedQty} ${itemName} to your list.`
+        ai_response_text: isPantry 
+          ? `Added ${parsedQty} ${itemName} to your pantry.` 
+          : `Added ${parsedQty} ${itemName} to your list.`
       };
     }
 
-    // Attach substitute suggestions if applicable
+    // 4. Live Hot Deals Enrichment
+    if (parsed.action === 'GET_DEALS' || /discount|offer|deal|saving/i.test(effectiveQuery)) {
+      const discountedProducts = STORE_CATALOG.filter(p => p.discountBadge);
+      parsed.action = 'GET_DEALS';
+      parsed.suggestions = discountedProducts.map(p => ({
+        type: 'sale_deal',
+        reason: `${p.discountBadge} on ${p.brand}`,
+        discountBadge: p.discountBadge,
+        item: {
+          name: p.name,
+          price: p.price,
+          originalPrice: p.originalPrice || null,
+          unit: p.unit,
+          category: p.category,
+          image: p.image
+        }
+      }));
+      parsed.ai_response_text = `Here are today's top grocery deals! You can save on ${discountedProducts[0]?.name || 'cooking essentials'}.`;
+    }
+
+    // 5. Live Catalog Matching for Voice Searches
+    if (parsed.action === 'SEARCH' && parsed.search_filter) {
+      const q = (parsed.search_filter.query || '').toLowerCase();
+      const maxPrice = parsed.search_filter.max_price;
+
+      const matches = STORE_CATALOG.filter(p => {
+        const matchesQuery = !q || p.name.toLowerCase().includes(q) || p.tags.some(t => t.includes(q)) || p.brand.toLowerCase().includes(q);
+        const matchesPrice = maxPrice ? p.price <= maxPrice : true;
+        return matchesQuery && matchesPrice;
+      });
+
+      parsed.search_results = matches;
+      if (matches.length > 0) {
+        parsed.items = matches.slice(0, 1).map(p => ({
+          name: p.name,
+          quantity: 1,
+          unit: p.unit,
+          price: p.price,
+          category: p.category,
+          image: p.image,
+          brand: p.brand
+        }));
+        parsed.ai_response_text = `Found ${matches.length} matching products. Added ${matches[0].name} for ₹${matches[0].price}.`;
+      } else {
+        parsed.ai_response_text = `No items found matching "${q}" within ₹${maxPrice || 'unlimited'}.`;
+      }
+    }
+
+    // 6. Healthy Dietary Substitution Attachment
     if ((parsed.action === 'ADD' || parsed.action === 'ADD_BUNDLE') && Array.isArray(parsed.items)) {
       parsed.items = parsed.items.map((item: any) => {
         if (!item.substituteSuggestion && item.name) {
@@ -167,7 +220,7 @@ JSON Schema:
     return NextResponse.json({
       ...parsed,
       intent: parsed.action || 'ADD',
-      confidence: 0.95,
+      confidence: 0.96,
       clarificationRequired: false,
       feedbackMessage: parsed.ai_response_text || 'Processed your request.',
       responseMessage: parsed.ai_response_text || 'Processed your request.'
@@ -179,7 +232,7 @@ JSON Schema:
       intent: 'INFO',
       clarificationRequired: false,
       items: [],
-      ai_response_text: "I couldn't process that command. Please try again."
+      ai_response_text: "I couldn't process that command. Please try again with a specific grocery item."
     });
   }
 }

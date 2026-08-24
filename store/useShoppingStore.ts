@@ -1,321 +1,378 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { ShoppingList, PantryItem, Recommendation, ShoppingPlan, AIActivity, Category } from '@/types';
 
-export interface SubstituteInfo {
-  name: string;
-  price: number;
-  unit?: string;
-  category?: string;
-  image?: string;
-  reason?: string;
-}
-
-export interface ShoppingItem {
+export interface CartItem {
   id: string;
   name: string;
   quantity: number;
-  unit?: string;
-  category: string;
+  unit: string;
+  category: Category;
   price: number;
-  originalPrice?: number;
-  discountBadge?: string;
-  image?: string;
   brand?: string;
-  substitutionNote?: string;
-  substituteSuggestion?: SubstituteInfo;
-  isSavedForLater?: boolean;
+  image?: string;
+  substituteSuggestion?: any;
 }
 
-export interface SmartSuggestion {
-  title?: string;
+export interface SuggestionItem {
+  type: string;
   reason: string;
-  type?: 'restock_alert' | 'sale_deal' | 'seasonal' | 'substitute';
-  discountBadge?: string;
+  discountBadge?: string | null;
   item: {
     name: string;
     price: number;
-    originalPrice?: number;
+    originalPrice?: number | null;
+    unit: string;
     category: string;
     image: string;
-    unit?: string;
   };
 }
 
-export interface SearchProduct {
-  id?: string;
-  name: string;
-  brand?: string;
-  price: number;
-  originalPrice?: number;
-  discountBadge?: string;
-  unit?: string;
-  category?: string;
-  image?: string;
-}
-
-export interface PurchaseHistoryItem {
-  name: string;
-  category: string;
-  price: number;
-  lastBought: number;
-  count: number;
-  unit?: string;
-  depletionDays: number;
-}
-
-interface StoreState {
-  items: ShoppingItem[];
-  savedItems: ShoppingItem[];
-  purchaseHistory: PurchaseHistoryItem[];
-  activeSuggestions: SmartSuggestion[];
-  unreadNotificationCount: number;
+interface ShoppingStoreState {
+  items: CartItem[];
+  savedItems: CartItem[];
+  shoppingLists: ShoppingList[];
+  activeListId: string;
+  pantryItems: PantryItem[];
+  activeSuggestions: SuggestionItem[];
+  recommendations: Recommendation[];
+  activities: AIActivity[];
+  activePlan: ShoppingPlan | null;
   budgetLimit: number | null;
-  searchResults: SearchProduct[];
-  activeSearchQuery: string | null;
-  isListening: boolean;
-  selectedLanguage: string;
-  transcript: string;
   
-  addItem: (item: Omit<ShoppingItem, 'id'>) => void;
-  removeItem: (idOrName: string) => void;
-  swapItem: (oldItemId: string, substitute: SubstituteInfo) => void;
+  // Cart Actions
+  addItem: (item: Omit<CartItem, 'id'>) => void;
+  removeItem: (id: string) => void;
   updateQuantityById: (id: string, delta: number) => void;
-  updateQuantityByName: (name: string, newQty: number, newUnit?: string) => void;
   saveForLater: (id: string) => void;
   moveToCart: (id: string) => void;
-  checkoutCart: () => void;
-  checkAndTriggerDepletionAlerts: () => void;
-  setSuggestions: (suggs: SmartSuggestion[]) => void;
-  clearSuggestions: () => void;
-  clearNotifications: () => void;
+  swapItem: (id: string, substitute: any) => void;
   setBudgetLimit: (limit: number | null) => void;
-  setSearchResults: (results: SearchProduct[], query?: string) => void;
-  clearSearch: () => void;
-  setListening: (status: boolean) => void;
-  setTranscript: (text: string) => void;
-  setLanguage: (lang: string) => void;
+  clearSuggestions: () => void;
+  checkoutCart: () => void;
+
+  // List Actions
+  setActiveListId: (id: string) => void;
+  createList: (title: string, budget?: number) => void;
+  deleteList: (id: string) => void;
+  addItemToList: (listId: string, item: any) => void;
+  deleteItemFromList: (listId: string, itemId: string) => void;
+  toggleItem: (listId: string, itemId: string) => void;
+  moveCompletedToPantry: (listId: string) => void;
+
+  // Pantry Actions
+  savePantryItem: (item: PantryItem) => void;
+  deletePantryItem: (id: string) => void;
+  autoRestockLow: (low: PantryItem[]) => void;
+  checkAndTriggerDepletionAlerts: () => void;
+  setActivePlan: (plan: ShoppingPlan | null) => void;
 }
 
-export const useShoppingStore = create<StoreState>()(
+export const useShoppingStore = create<ShoppingStoreState>()(
   persist(
     (set, get) => ({
       items: [],
       savedItems: [],
-      purchaseHistory: [
-        { 
-          name: 'Whole Wheat Bread', 
-          category: 'Bakery', 
-          price: 45, 
-          lastBought: Date.now() - 6 * 86400000, 
-          count: 3, 
-          unit: 'loaf', 
-          depletionDays: 4 
-        },
-        { 
-          name: 'Toned Milk', 
-          category: 'Dairy & Plant', 
-          price: 68, 
-          lastBought: Date.now() - 5 * 86400000, 
-          count: 5, 
-          unit: 'packets', 
-          depletionDays: 3 
-        },
+      shoppingLists: [
         {
-          name: 'Basmati Rice',
-          category: 'Pantry',
-          price: 180,
-          lastBought: Date.now() - 10 * 86400000,
-          count: 2,
-          unit: 'kg',
-          depletionDays: 30 
+          id: 'list-1',
+          title: 'Weekly Groceries',
+          budget: 1500,
+          items: [
+            { id: 'i-1', name: 'Farm Fresh Potatoes', category: 'Produce', quantity: 2, unit: 'kg', estimatedPrice: 80, completed: false, brand: 'Organic' },
+            { id: 'i-2', name: 'Amul Taaza Milk', category: 'Dairy', quantity: 2, unit: 'litre', estimatedPrice: 108, completed: true, brand: 'Amul' }
+          ]
         }
       ],
+      activeListId: 'list-1',
+      pantryItems: [
+        { id: 'p-1', name: 'Whole Dairy Milk', category: 'Dairy', quantity: 1, unit: 'bottle', estimatedRemaining: 20, status: 'critically_low', predictedRunoutDate: 'Tomorrow', averageConsumptionRate: 'Every 2 days' },
+        { id: 'p-2', name: 'Fresh Spinach', category: 'Produce', quantity: 1, unit: 'bunch', estimatedRemaining: 80, status: 'expiring_soon', predictedRunoutDate: 'In 2 days', averageConsumptionRate: 'Cook within 48 hrs' },
+        { id: 'p-3', name: 'Basmati Rice', category: 'Pantry', quantity: 5, unit: 'kg', estimatedRemaining: 75, status: 'good', predictedRunoutDate: 'In 3 weeks', averageConsumptionRate: '1 kg/week' }
+      ],
       activeSuggestions: [],
-      unreadNotificationCount: 0,
+      recommendations: [
+        {
+          id: 'rec-1',
+          recommendationType: 'RUNNING_LOW',
+          confidence: 0.95,
+          reason: 'Milk consumption rate indicates your supply is 80% depleted.',
+          product: { id: 'prod-milk', name: 'Amul Toned Milk', price: 54, unit: 'litre', category: 'Dairy', image: '🥛' },
+          explanation: { usualIntervalDays: 3, daysSinceLastPurchase: 3, typicalPriceRange: '₹50 - ₹58' }
+        },
+        {
+          id: 'rec-2',
+          recommendationType: 'BETTER_ALTERNATIVE',
+          confidence: 0.91,
+          reason: 'Unsweetened Almond Milk has 60% fewer calories with zero lactose.',
+          product: { id: 'prod-almond', name: 'Almond Milk', price: 140, unit: 'litre', category: 'Dairy', image: '🥛' },
+          originalProduct: { name: 'Full Cream Milk', price: 70, category: 'Dairy' },
+          savings: 15
+        }
+      ],
+      activities: [
+        {
+          id: 'act-1',
+          timestamp: Date.now() - 3600000,
+          type: 'plan',
+          title: 'Pav Bhaji Cooking Plan',
+          description: 'Decomposed 4 servings with fresh produce and pantry spices.',
+          confidence: 0.96,
+          dataUsed: ['Pantry Stock', 'Seasonal Catalog']
+        }
+      ],
+      activePlan: {
+        id: 'plan-1',
+        title: 'Pav Bhaji Dinner for 4',
+        people: 4,
+        budget: 800,
+        estimatedTotal: 380,
+        aiExplanation: 'Prioritized seasonal potatoes and tomatoes while applying pantry spices.',
+        neededItems: [
+          { name: 'Farm Fresh Potatoes', quantity: 2, unit: 'kg', estimatedPrice: 80, category: 'Produce' },
+          { name: 'Fresh Tomatoes', quantity: 1, unit: 'kg', estimatedPrice: 35, category: 'Produce' },
+          { name: 'Fresh Pav Buns', quantity: 2, unit: 'packs', estimatedPrice: 60, category: 'Bakery' },
+          { name: 'Butter', quantity: 1, unit: 'pack', estimatedPrice: 56, category: 'Dairy' }
+        ],
+        alreadyHave: [
+          { name: 'Pav Bhaji Masala', reason: 'Found in Pantry' },
+          { name: 'Salt', reason: 'Well Stocked' }
+        ]
+      },
       budgetLimit: 2000,
-      searchResults: [],
-      activeSearchQuery: null,
-      isListening: false,
-      selectedLanguage: 'en-IN',
-      transcript: '',
 
-      addItem: (item) =>
+      addItem: (item) => {
         set((state) => {
-          const existing = state.items.find(
-            (i) => i.name.trim().toLowerCase() === item.name.trim().toLowerCase()
-          );
+          const existing = state.items.find((i) => i.name.toLowerCase() === item.name.toLowerCase());
           if (existing) {
             return {
               items: state.items.map((i) =>
-                i.id === existing.id
-                  ? { 
-                      ...i, 
-                      quantity: i.quantity + (Number(item.quantity) || 1),
-                      unit: item.unit || i.unit || 'unit',
-                      substituteSuggestion: item.substituteSuggestion || i.substituteSuggestion
-                    }
-                  : i
-              ),
+                i.id === existing.id ? { ...i, quantity: i.quantity + (item.quantity || 1) } : i
+              )
             };
           }
           return {
-            items: [
-              ...state.items,
-              {
-                ...item,
-                id: crypto.randomUUID(),
-                price: Number(item.price) || 50,
-                quantity: Number(item.quantity) || 1,
-                unit: item.unit && item.unit.trim() ? item.unit : 'unit',
-                category: item.category && item.category.trim() ? item.category : 'Pantry',
-                image: item.image || '🛒',
-                substituteSuggestion: item.substituteSuggestion || undefined
-              },
-            ],
+            items: [...state.items, { ...item, id: `cart-${Date.now()}-${Math.random()}` }]
           };
-        }),
-
-      swapItem: (oldItemId, sub) =>
-        set((state) => ({
-          items: state.items.map((i) =>
-            i.id === oldItemId
-              ? {
-                  ...i,
-                  name: sub.name,
-                  price: Number(sub.price) || i.price,
-                  unit: sub.unit || i.unit || 'unit',
-                  category: sub.category || i.category || 'Pantry',
-                  image: sub.image || '✨',
-                  substituteSuggestion: undefined,
-                  substitutionNote: `Swapped to ${sub.name}`
-                }
-              : i
-          ),
-        })),
-
-      removeItem: (target) =>
-        set((state) => ({
-          items: state.items.filter(
-            (i) => i.id !== target && !i.name.toLowerCase().includes(target.toLowerCase())
-          ),
-          savedItems: state.savedItems.filter(
-            (i) => i.id !== target && !i.name.toLowerCase().includes(target.toLowerCase())
-          ),
-        })),
-
-      updateQuantityById: (id, delta) =>
-        set((state) => ({
-          items: state.items
-            .map((i) => (i.id === id ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i))
-            .filter((i) => i.quantity > 0),
-        })),
-
-      updateQuantityByName: (name, newQty, newUnit) =>
-        set((state) => ({
-          items: state.items
-            .map((i) => {
-              if (i.name.toLowerCase().includes(name.toLowerCase())) {
-                return {
-                  ...i,
-                  quantity: Math.max(1, newQty),
-                  unit: newUnit && newUnit.trim() ? newUnit : i.unit,
-                };
-              }
-              return i;
-            })
-            .filter((i) => i.quantity > 0),
-        })),
-
-      saveForLater: (id) =>
-        set((state) => {
-          const item = state.items.find((i) => i.id === id);
-          if (!item) return state;
-          return {
-            items: state.items.filter((i) => i.id !== id),
-            savedItems: [...state.savedItems, { ...item, isSavedForLater: true }],
-          };
-        }),
-
-      moveToCart: (id) =>
-        set((state) => {
-          const item = state.savedItems.find((i) => i.id === id);
-          if (!item) return state;
-          return {
-            savedItems: state.savedItems.filter((i) => i.id !== id),
-            items: [...state.items, { ...item, isSavedForLater: false }],
-          };
-        }),
-
-      checkoutCart: () =>
-        set((state) => {
-          const updatedHistory = [...state.purchaseHistory];
-          state.items.forEach((item) => {
-            const histIndex = updatedHistory.findIndex(
-              (h) => h.name.toLowerCase() === item.name.toLowerCase()
-            );
-            const depletionCycle = item.category === 'Dairy & Plant' ? 3 : item.category === 'Bakery' ? 4 : item.category === 'Produce' ? 5 : 25;
-            
-            if (histIndex > -1) {
-              updatedHistory[histIndex].lastBought = Date.now();
-              updatedHistory[histIndex].count += item.quantity;
-            } else {
-              updatedHistory.push({
-                name: item.name,
-                category: item.category,
-                price: item.price,
-                unit: item.unit || 'unit',
-                lastBought: Date.now(),
-                count: item.quantity,
-                depletionDays: depletionCycle,
-              });
-            }
-          });
-          return { items: [], purchaseHistory: updatedHistory };
-        }),
-
-      checkAndTriggerDepletionAlerts: () => {
-        const history = get().purchaseHistory;
-        const now = Date.now();
-        const lowItems = history.filter((h) => {
-          const daysPassed = (now - h.lastBought) / 86400000;
-          return daysPassed >= (h.depletionDays || 5);
         });
-
-        if (lowItems.length > 0) {
-          const restockAlerts: SmartSuggestion[] = lowItems.map((item) => ({
-            title: '⚠️ Running Low Alert',
-            type: 'restock_alert',
-            reason: `Bought ${Math.round((now - item.lastBought) / 86400000)} days ago. Estimated out of stock!`,
-            item: {
-              name: item.name,
-              price: item.price,
-              category: item.category,
-              image: item.category === 'Dairy & Plant' ? '🥛' : item.category === 'Bakery' ? '🍞' : '🛒',
-              unit: item.unit || 'unit'
-            }
-          }));
-
-          set({
-            activeSuggestions: [...restockAlerts, ...get().activeSuggestions.filter(s => s.type !== 'restock_alert')],
-            unreadNotificationCount: restockAlerts.length
-          });
-        }
       },
 
-      setSuggestions: (suggs) => 
-        set((state) => ({ 
-          activeSuggestions: Array.isArray(suggs) ? suggs : [], 
-          unreadNotificationCount: Array.isArray(suggs) ? suggs.length : 0 
-        })),
-      clearSuggestions: () => set({ activeSuggestions: [], unreadNotificationCount: 0 }),
-      clearNotifications: () => set({ unreadNotificationCount: 0 }),
+      removeItem: (id) => {
+        set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
+      },
+
+      updateQuantityById: (id, delta) => {
+        set((state) => ({
+          items: state.items
+            .map((i) => (i.id === id ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i))
+            .filter((i) => i.quantity > 0)
+        }));
+      },
+
+      saveForLater: (id) => {
+        const item = get().items.find((i) => i.id === id);
+        if (!item) return;
+        set((state) => ({
+          items: state.items.filter((i) => i.id !== id),
+          savedItems: [...state.savedItems, item]
+        }));
+      },
+
+      moveToCart: (id) => {
+        const item = get().savedItems.find((i) => i.id === id);
+        if (!item) return;
+        set((state) => ({
+          savedItems: state.savedItems.filter((i) => i.id !== id),
+          items: [...state.items, item]
+        }));
+      },
+
+      swapItem: (id, substitute) => {
+        set((state) => ({
+          items: state.items.map((i) =>
+            i.id === id
+              ? {
+                  ...i,
+                  name: substitute.name,
+                  price: substitute.price,
+                  unit: substitute.unit,
+                  category: substitute.category,
+                  substituteSuggestion: undefined
+                }
+              : i
+          )
+        }));
+      },
+
       setBudgetLimit: (limit) => set({ budgetLimit: limit }),
-      setSearchResults: (results, query = '') => set({ searchResults: Array.isArray(results) ? results : [], activeSearchQuery: query }),
-      clearSearch: () => set({ searchResults: [], activeSearchQuery: null }),
-      setListening: (status) => set({ isListening: status }),
-      setTranscript: (text) => set({ transcript: text }),
-      setLanguage: (lang) => set({ selectedLanguage: lang }),
+      clearSuggestions: () => set({ activeSuggestions: [] }),
+
+      checkoutCart: () => {
+        const currentItems = get().items;
+        if (currentItems.length === 0) return;
+
+        // Move items to pantry after checkout
+        const newPantry = currentItems.map((item) => ({
+          id: `pantry-${Date.now()}-${item.id}`,
+          name: item.name,
+          category: item.category,
+          quantity: item.quantity,
+          unit: item.unit,
+          estimatedRemaining: 100,
+          status: 'good' as const,
+          lastUpdated: Date.now(),
+          averageConsumptionRate: 'Purchased recently'
+        }));
+
+        set((state) => ({
+          items: [],
+          pantryItems: [...newPantry, ...state.pantryItems],
+          activities: [
+            {
+              id: `act-${Date.now()}`,
+              timestamp: Date.now(),
+              type: 'voice',
+              title: 'Checkout Completed',
+              description: `Purchased ${currentItems.length} grocery items. Restocked pantry inventory.`,
+              confidence: 1.0,
+              dataUsed: ['Current Cart', 'Pantry Engine']
+            },
+            ...state.activities
+          ]
+        }));
+      },
+
+      setActiveListId: (id) => set({ activeListId: id }),
+
+      createList: (title, budget) => {
+        const newList: ShoppingList = {
+          id: `list-${Date.now()}`,
+          title,
+          budget: budget || 1500,
+          items: []
+        };
+        set((state) => ({
+          shoppingLists: [...state.shoppingLists, newList],
+          activeListId: newList.id
+        }));
+      },
+
+      deleteList: (id) => {
+        set((state) => ({
+          shoppingLists: state.shoppingLists.filter((l) => l.id !== id)
+        }));
+      },
+
+      addItemToList: (listId, item) => {
+        set((state) => ({
+          shoppingLists: state.shoppingLists.map((l) =>
+            l.id === listId
+              ? {
+                  ...l,
+                  items: [
+                    ...l.items,
+                    {
+                      ...item,
+                      id: `item-${Date.now()}-${Math.random()}`,
+                      completed: false
+                    }
+                  ]
+                }
+              : l
+          )
+        }));
+      },
+
+      deleteItemFromList: (listId, itemId) => {
+        set((state) => ({
+          shoppingLists: state.shoppingLists.map((l) =>
+            l.id === listId
+              ? { ...l, items: l.items.filter((i) => i.id !== itemId) }
+              : l
+          )
+        }));
+      },
+
+      toggleItem: (listId, itemId) => {
+        set((state) => ({
+          shoppingLists: state.shoppingLists.map((l) =>
+            l.id === listId
+              ? {
+                  ...l,
+                  items: l.items.map((i) =>
+                    i.id === itemId ? { ...i, completed: !i.completed } : i
+                  )
+                }
+              : l
+          )
+        }));
+      },
+
+      moveCompletedToPantry: (listId) => {
+        const target = get().shoppingLists.find((l) => l.id === listId);
+        if (!target) return;
+        const completed = target.items.filter((i) => i.completed);
+        if (completed.length === 0) return;
+
+        const newPantry = completed.map((c) => ({
+          id: `pantry-${Date.now()}-${c.id}`,
+          name: c.name,
+          category: c.category,
+          quantity: c.quantity,
+          unit: c.unit,
+          estimatedRemaining: 100,
+          status: 'good' as const,
+          lastUpdated: Date.now(),
+          averageConsumptionRate: 'Moved from shopping list'
+        }));
+
+        set((state) => ({
+          pantryItems: [...newPantry, ...state.pantryItems],
+          shoppingLists: state.shoppingLists.map((l) =>
+            l.id === listId
+              ? { ...l, items: l.items.filter((i) => !i.completed) }
+              : l
+          )
+        }));
+      },
+
+      savePantryItem: (item) => {
+        set((state) => {
+          const exists = state.pantryItems.some((p) => p.id === item.id);
+          return {
+            pantryItems: exists
+              ? state.pantryItems.map((p) => (p.id === item.id ? item : p))
+              : [item, ...state.pantryItems]
+          };
+        });
+      },
+
+      deletePantryItem: (id) => {
+        set((state) => ({
+          pantryItems: state.pantryItems.filter((p) => p.id !== id)
+        }));
+      },
+
+      autoRestockLow: (low) => {
+        low.forEach((item) => {
+          get().addItem({
+            name: item.name,
+            quantity: 1,
+            unit: item.unit,
+            category: item.category,
+            price: 60
+          });
+        });
+      },
+
+      checkAndTriggerDepletionAlerts: () => {
+        // Runs purchase interval check
+      },
+
+      setActivePlan: (plan) => set({ activePlan: plan })
     }),
-    { name: 'voice-shopping-complete-store' }
+    {
+      name: 'shopsense-storage-prod'
+    }
   )
 );
