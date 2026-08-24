@@ -2,9 +2,7 @@ import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { STORE_CATALOG, HEALTHY_SUBSTITUTES_MAP } from '@/lib/catalogData';
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+export const dynamic = 'force-dynamic';
 
 const CHAT_MODELS = [
   'openai/gpt-oss-120b',
@@ -14,6 +12,10 @@ const CHAT_MODELS = [
 
 export async function POST(req: Request) {
   try {
+    const groq = new Groq({
+      apiKey: process.env.GROQ_API_KEY || 'dummy-key-for-build',
+    });
+
     const body = await req.json().catch(() => ({}));
     const rawTranscript = body.transcript || body.query || '';
     const pendingItemContext = (body.pendingItemContext || '').trim();
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Ambiguity Detection (e.g. "Add apple" -> "How many kgs or pieces?")
+    // 2. Ambiguity Detection
     const isPantryQuery = /pantry/i.test(effectiveQuery);
     const isBareSingleItem = /^(add|buy|get|need|daalo|kharido)\s+([a-zA-Z\s]+)$/i.test(effectiveQuery);
     const hasUnitsOrNumbers = /\d+|kg|kilo|litre|liter|packet|pack|bunch|dozen|gm|gram|bottle|can|box|pieces|piece/i.test(effectiveQuery);
@@ -61,34 +63,36 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Groq Universal Agent Reasoning
+    // 3. Groq Prompt
     const systemPrompt = `You are a high-intelligence Voice Shopping Assistant for Indian grocery, recipes, household items, deals, and pantry restocks in INR (₹).
-Strict Action Classifications:
-1. "ADD_PANTRY": User specifies adding or stocking items in their pantry/kitchen inventory (e.g. "Add 5 kg rice to pantry", "Stock milk in my pantry").
-2. "ADD_BUNDLE": Recipe decomposition for ANY dish (e.g., "Ingredients for Pav Bhaji", "Biryani for 4", "Pasta Alfredo"). Decompose into 4-6 required grocery items with realistic units (kg, pack, bottle, bunch), realistic market INR prices, and categories.
-3. "ADD": Explicit command to add grocery products to the shopping cart.
-4. "REMOVE": User requests deleting an item. Populate update_target { "name": string }.
-5. "SEARCH": When searching for products, brands, or budget ceilings (e.g. "Find green tea under ₹300", "Show me Tata Salt"). Populate search_filter { "query": string, "max_price": number | null }.
-6. "GET_DEALS": User asks for deals, sales, discounts, or offers.
-7. "GET_SEASONAL": User asks for seasonal fruits/vegetables for ${currentMonth}.
-8. "GET_RUNNING_LOW": User asks what needs restock.
-9. "SET_BUDGET": User sets a spending cap (e.g. "Set budget to ₹1500"). Populate budget_limit.
-10. "INFO": Conversational questions, coupons, or general inquiries. Keep items []. Provide spoken feedback.
-
-Output STRICT raw valid JSON only. Do not wrap in markdown backticks and never output <think> tags.
 
 Context:
 - Current Month: ${currentMonth}
 - Current Cart: ${JSON.stringify(currentCart)}
-- User History: ${JSON.stringify(purchaseHistory)}
+- Current Pantry Inventory: ${JSON.stringify(purchaseHistory)}
 - Language: ${language}
+
+PANTRY-AWARE INVENTORY RULES:
+1. When user requests adding items or ingredients for recipes/meals, CROSS-CHECK "Current Pantry Inventory".
+2. If an item is ALREADY AVAILABLE in the pantry with good remaining stock (>25% or status 'good'), do NOT blindly add it:
+   - If all requested items are in the pantry, set action="PANTRY_EXISTS", put them in "pantry_found", and ask: "You already have [items] in your pantry. Shall we still add them to the list?"
+   - If some items are in the pantry and others are missing, populate "items" ONLY with the missing items to buy, put existing ones in "pantry_found", and state which ones are already in the pantry.
+3. "ADD_PANTRY": User specifies adding or stocking items directly in their pantry inventory.
+4. "ADD_BUNDLE": Recipe decomposition for ANY dish.
+5. "ADD": Explicit command to add grocery products to the shopping cart.
+6. "REMOVE", "UPDATE_QUANTITY", "SEARCH", "GET_DEALS", "GET_SEASONAL", "GET_RUNNING_LOW", "SET_BUDGET", "INFO".
+
+Output STRICT raw valid JSON only. Do not wrap in markdown backticks and never output <think> tags.
 
 JSON Schema:
 {
-  "action": "ADD" | "ADD_PANTRY" | "ADD_BUNDLE" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO",
+  "action": "ADD" | "ADD_PANTRY" | "ADD_BUNDLE" | "PANTRY_EXISTS" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO",
   "clarificationRequired": false,
   "items": [
     { "name": string, "quantity": number, "unit": string, "price": number, "category": string, "image": string, "brand": string | null }
+  ],
+  "pantry_found": [
+    { "name": string, "quantity": number, "unit": string, "status": string }
   ],
   "update_target": { "name": string, "quantity": number, "unit": string } | null,
   "search_filter": { "query": string | null, "max_price": number | null } | null,
@@ -148,13 +152,13 @@ JSON Schema:
           image: '🛒',
           brand: null
         }],
+        pantry_found: [],
         ai_response_text: isPantry 
           ? `Added ${parsedQty} ${itemName} to your pantry.` 
           : `Added ${parsedQty} ${itemName} to your list.`
       };
     }
 
-    // 4. Live Hot Deals Enrichment
     if (parsed.action === 'GET_DEALS' || /discount|offer|deal|saving/i.test(effectiveQuery)) {
       const discountedProducts = STORE_CATALOG.filter(p => p.discountBadge);
       parsed.action = 'GET_DEALS';
@@ -174,7 +178,6 @@ JSON Schema:
       parsed.ai_response_text = `Here are today's top grocery deals! You can save on ${discountedProducts[0]?.name || 'cooking essentials'}.`;
     }
 
-    // 5. Live Catalog Matching for Voice Searches
     if (parsed.action === 'SEARCH' && parsed.search_filter) {
       const q = (parsed.search_filter.query || '').toLowerCase();
       const maxPrice = parsed.search_filter.max_price;
@@ -202,7 +205,6 @@ JSON Schema:
       }
     }
 
-    // 6. Healthy Dietary Substitution Attachment
     if ((parsed.action === 'ADD' || parsed.action === 'ADD_BUNDLE') && Array.isArray(parsed.items)) {
       parsed.items = parsed.items.map((item: any) => {
         if (!item.substituteSuggestion && item.name) {
@@ -232,6 +234,7 @@ JSON Schema:
       intent: 'INFO',
       clarificationRequired: false,
       items: [],
+      pantry_found: [],
       ai_response_text: "I couldn't process that command. Please try again with a specific grocery item."
     });
   }
