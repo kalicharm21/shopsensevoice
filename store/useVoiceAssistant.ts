@@ -2,24 +2,23 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useShoppingStore } from './useShoppingStore';
+import { Category } from '@/types';
 
 export function useVoiceAssistant() {
   const {
     items,
-    purchaseHistory,
-    selectedLanguage,
-    setListening,
-    setTranscript,
+    pantryItems,
     addItem,
     removeItem,
-    updateQuantityByName,
-    setSearchResults,
-    setSuggestions,
+    updateQuantityById,
     setBudgetLimit,
+    shoppingLists,
+    activeListId
   } = useShoppingStore();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [selectedLanguage] = useState<'en-IN' | 'hi-IN'>('en-IN');
   const recognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const accumulatedTranscriptRef = useRef<string>('');
@@ -43,64 +42,58 @@ export function useVoiceAssistant() {
     setFeedbackMessage('Groq AI is reasoning...');
 
     try {
+      const activeList = shoppingLists.find((l) => l.id === activeListId) || shoppingLists[0];
       const res = await fetch('/api/voice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript: cleanText,
-          currentCart: items,
-          purchaseHistory: purchaseHistory,
+          currentCart: activeList?.items || items,
+          purchaseHistory: pantryItems,
           language: selectedLanguage,
         }),
       });
 
       const data = await res.json();
 
-      // Guarded Cart Additions: Only run if items array actually contains items
+      // Guarded Cart Additions
       if ((data.action === 'ADD' || data.action === 'ADD_BUNDLE') && Array.isArray(data.items) && data.items.length > 0) {
         data.items.forEach((item: any) => {
           if (item && item.name && item.name.trim()) {
             addItem({
               name: item.name,
               quantity: Number(item.quantity) || 1,
-              unit: item.unit || 'unit',
-              category: item.category || 'Pantry',
+              unit: item.unit || 'pack',
+              category: (item.category || 'Pantry') as Category,
               price: Number(item.price) || 60,
               image: item.image || '🛒',
               brand: item.brand || undefined,
-              substitutionNote: item.substitutionNote || undefined,
               substituteSuggestion: item.substituteSuggestion || undefined,
             });
           }
         });
-      } else if (data.action === 'REMOVE' && Array.isArray(data.items)) {
-        data.items.forEach((targetItem: any) => {
-          if (targetItem.name) removeItem(targetItem.name);
-        });
-      } else if (data.action === 'UPDATE_QUANTITY' && data.update_target) {
-        updateQuantityByName(
-          data.update_target.name,
-          Number(data.update_target.new_quantity) || 1,
-          data.update_target.new_unit
-        );
-      } else if (data.action === 'SEARCH') {
-        setSearchResults(data.search_results || [], cleanText);
-      } else if (
-        (data.action === 'GET_SEASONAL' || 
-         data.action === 'GET_RUNNING_LOW' || 
-         data.action === 'GET_SUBSTITUTE' || 
-         data.action === 'GET_DEALS') &&
-        Array.isArray(data.suggestions)
-      ) {
-        setSuggestions(data.suggestions);
+      } else if (data.action === 'REMOVE' && data.update_target?.name) {
+        const targetName = data.update_target.name.toLowerCase();
+        const targetItem = items.find((i) => i.name.toLowerCase().includes(targetName));
+        if (targetItem) {
+          removeItem(targetItem.id);
+        }
+      } else if (data.action === 'UPDATE_QUANTITY' && data.update_target?.name) {
+        const targetName = data.update_target.name.toLowerCase();
+        const targetItem = items.find((i) => i.name.toLowerCase().includes(targetName));
+        if (targetItem && typeof data.update_target.quantity === 'number') {
+          const delta = data.update_target.quantity - targetItem.quantity;
+          updateQuantityById(targetItem.id, delta);
+        }
       } else if (data.action === 'SET_BUDGET' && data.budget_limit) {
         setBudgetLimit(Number(data.budget_limit));
       }
 
       // Voice and text loopback confirmation
-      if (data.ai_response_text) {
-        setFeedbackMessage(data.ai_response_text);
-        speak(data.ai_response_text);
+      if (data.ai_response_text || data.feedbackMessage) {
+        const spoken = data.ai_response_text || data.feedbackMessage;
+        setFeedbackMessage(spoken);
+        speak(spoken);
       }
     } catch (err: any) {
       console.error('Voice assistant error:', err);
@@ -108,7 +101,7 @@ export function useVoiceAssistant() {
     } finally {
       setIsProcessing(false);
     }
-  }, [items, purchaseHistory, selectedLanguage, addItem, removeItem, updateQuantityByName, setSearchResults, setSuggestions, setBudgetLimit, speak]);
+  }, [items, pantryItems, selectedLanguage, shoppingLists, activeListId, addItem, removeItem, updateQuantityById, setBudgetLimit, speak]);
 
   const stopListening = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -123,8 +116,7 @@ export function useVoiceAssistant() {
       }
       recognitionRef.current = null;
     }
-    setListening(false);
-  }, [setListening]);
+  }, []);
 
   const toggleListening = useCallback(async () => {
     if (recognitionRef.current) {
@@ -153,7 +145,6 @@ export function useVoiceAssistant() {
       recognition.interimResults = true;
 
       recognition.onstart = () => {
-        setListening(true);
         setFeedbackMessage('Listening... Speak naturally (tap mic when done) 🎙️');
       };
 
@@ -165,7 +156,6 @@ export function useVoiceAssistant() {
 
         const trimmed = currentText.trim();
         accumulatedTranscriptRef.current = trimmed;
-        setTranscript(trimmed);
 
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
@@ -184,7 +174,6 @@ export function useVoiceAssistant() {
       };
 
       recognition.onend = () => {
-        setListening(false);
         recognitionRef.current = null;
       };
 
@@ -194,7 +183,7 @@ export function useVoiceAssistant() {
       setFeedbackMessage('Microphone permission denied.');
       stopListening();
     }
-  }, [selectedLanguage, setListening, setTranscript, processTranscript, stopListening]);
+  }, [selectedLanguage, processTranscript, stopListening]);
 
   useEffect(() => {
     return () => {
