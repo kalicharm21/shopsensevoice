@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MaisonCart — Smart Voice Shopping Assistant",
+  title: "ShopSense— Smart Shopping Assistant",
   description: "AI-powered voice grocery shopping cart",
   icons: {
     icon: "/favicon.ico",
