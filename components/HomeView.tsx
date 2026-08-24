@@ -18,9 +18,9 @@ import {
 interface HomeViewProps {
   user: UserProfile | null;
   activePlan: ShoppingPlan | null;
-  shoppingLists: ShoppingList[];
-  pantryItems: PantryItem[];
-  recommendations: Recommendation[];
+  shoppingLists?: ShoppingList[];
+  pantryItems?: PantryItem[];
+  recommendations?: Recommendation[];
   onOpenVoice: () => void;
   onOpenPlan: (plan: ShoppingPlan) => void;
   onOpenWhy: (rec: Recommendation) => void;
@@ -32,9 +32,9 @@ interface HomeViewProps {
 export const HomeView: React.FC<HomeViewProps> = ({
   user,
   activePlan,
-  shoppingLists,
-  pantryItems,
-  recommendations,
+  shoppingLists = [],
+  pantryItems = [],
+  recommendations = [],
   onOpenVoice,
   onOpenPlan,
   onOpenWhy,
@@ -42,17 +42,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateTab,
   onOpenReceiptScanner
 }) => {
+  const safePantry = Array.isArray(pantryItems) ? pantryItems : [];
+  const safeLists = Array.isArray(shoppingLists) ? shoppingLists : [];
+  const safeRecs = Array.isArray(recommendations) ? recommendations : [];
+
   const expiringSoon = useMemo(
-    () => pantryItems.filter(i => i.status === 'expiring_soon'),
-    [pantryItems]
+    () => safePantry.filter(i => i.status === 'expiring_soon'),
+    [safePantry]
   );
   
   const runningLow = useMemo(
-    () => pantryItems.filter(i => i.status === 'running_low' || i.status === 'critically_low'),
-    [pantryItems]
+    () => safePantry.filter(i => i.status === 'running_low' || i.status === 'critically_low'),
+    [safePantry]
   );
 
-  const primaryList = shoppingLists[0] || null;
+  const primaryList = safeLists[0] || null;
   const currentListItems = primaryList?.items || [];
   const currentListTotal = useMemo(
     () => currentListItems.reduce((s, i) => s + (i.estimatedPrice || 0), 0),
@@ -138,7 +142,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="bg-white rounded-3xl p-6 sm:p-7 border border-black/5 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-start mb-5">
-              <h3 className="text-xs uppercase tracking-widest font-bold opacity-40 text-[#353535]">Tonight's Plan</h3>
+              <h3 className="text-xs uppercase tracking-widest font-bold opacity-40 text-[#353535]">Tonight&apos;s Plan</h3>
               {activePlan && (
                 <span className="px-2 py-0.5 bg-green-50 text-green-700 text-[10px] font-bold rounded-md">
                   ACTIVE
@@ -192,7 +196,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </>
             ) : (
               <div className="py-8 text-center text-xs opacity-60">
-                No active cooking plan set. Tap above to plan tonight's dinner.
+                No active cooking plan set. Tap above to plan tonight&apos;s dinner.
               </div>
             )}
           </div>
@@ -220,14 +224,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
 
           <div className="space-y-3 flex-1">
-            {recommendations.slice(0, 3).map((rec) => (
+            {safeRecs.slice(0, 3).map((rec) => (
               <div 
                 key={rec.id}
                 id={`home-rec-card-${rec.id}`}
                 className="p-3.5 bg-[#FAF9F6] rounded-2xl flex items-center gap-3.5 border border-black/5 hover:border-[#708271]/30 transition-all"
               >
                 <div className="w-11 h-11 bg-[#708271]/10 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
-                  {rec.product.image ? (
+                  {rec.product?.image ? (
                     <img 
                       referrerPolicy="no-referrer" 
                       src={rec.product.image} 
@@ -241,8 +245,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className="font-bold text-sm text-[#353535] truncate">{rec.product.name}</p>
-                    <span className="text-xs font-semibold text-[#708271] ml-1">₹{rec.product.price}</span>
+                    <p className="font-bold text-sm text-[#353535] truncate">{rec.product?.name}</p>
+                    <span className="text-xs font-semibold text-[#708271] ml-1">₹{rec.product?.price}</span>
                   </div>
                   <p className="text-[10px] text-[#353535] opacity-60 truncate">
                     {rec.reason || 'Usually replenished every 5 days'}
@@ -253,13 +257,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   <button 
                     id={`home-add-rec-${rec.id}`}
                     onClick={() => onAddToList({
-                      name: rec.product.name,
-                      category: rec.product.category,
+                      name: rec.product?.name,
+                      category: rec.product?.category,
                       quantity: 1,
-                      unit: rec.product.unit,
-                      estimatedPrice: rec.product.price,
-                      brand: rec.product.brand,
-                      image: rec.product.image
+                      unit: rec.product?.unit,
+                      estimatedPrice: rec.product?.price,
+                      brand: rec.product?.brand,
+                      image: rec.product?.image
                     })}
                     className="px-3 py-1.5 bg-[#708271] hover:bg-[#5e705f] text-white text-xs rounded-lg font-bold transition-colors shadow-xs active:scale-95"
                   >
@@ -332,7 +336,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               onClick={() => onNavigateTab('pantry')}
               className="text-xs font-semibold text-[#708271] hover:underline"
             >
-              Open Pantry ({pantryItems.length})
+              Open Pantry ({safePantry.length})
             </button>
           </div>
 

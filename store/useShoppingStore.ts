@@ -60,7 +60,7 @@ export interface PurchaseHistoryItem {
   lastBought: number;
   count: number;
   unit?: string;
-  depletionDays: number; // e.g. 5 days for milk, 30 days for rice
+  depletionDays: number;
 }
 
 interface StoreState {
@@ -109,7 +109,7 @@ export const useShoppingStore = create<StoreState>()(
           lastBought: Date.now() - 6 * 86400000, 
           count: 3, 
           unit: 'loaf', 
-          depletionDays: 4 // Trigger alert: bought 6 days ago > 4 days lifecycle
+          depletionDays: 4 
         },
         { 
           name: 'Toned Milk', 
@@ -118,7 +118,7 @@ export const useShoppingStore = create<StoreState>()(
           lastBought: Date.now() - 5 * 86400000, 
           count: 5, 
           unit: 'packets', 
-          depletionDays: 3 // Trigger alert: bought 5 days ago > 3 days lifecycle
+          depletionDays: 3 
         },
         {
           name: 'Basmati Rice',
@@ -127,7 +127,7 @@ export const useShoppingStore = create<StoreState>()(
           lastBought: Date.now() - 10 * 86400000,
           count: 2,
           unit: 'kg',
-          depletionDays: 30 // Safe: bought 10 days ago < 30 days lifecycle
+          depletionDays: 30 
         }
       ],
       activeSuggestions: [],
@@ -141,7 +141,9 @@ export const useShoppingStore = create<StoreState>()(
 
       addItem: (item) =>
         set((state) => {
-          const existing = state.items.find((i) => i.name.toLowerCase() === item.name.toLowerCase());
+          const existing = state.items.find(
+            (i) => i.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+          );
           if (existing) {
             return {
               items: state.items.map((i) =>
@@ -248,7 +250,9 @@ export const useShoppingStore = create<StoreState>()(
         set((state) => {
           const updatedHistory = [...state.purchaseHistory];
           state.items.forEach((item) => {
-            const histIndex = updatedHistory.findIndex((h) => h.name.toLowerCase() === item.name.toLowerCase());
+            const histIndex = updatedHistory.findIndex(
+              (h) => h.name.toLowerCase() === item.name.toLowerCase()
+            );
             const depletionCycle = item.category === 'Dairy & Plant' ? 3 : item.category === 'Bakery' ? 4 : item.category === 'Produce' ? 5 : 25;
             
             if (histIndex > -1) {
@@ -269,7 +273,6 @@ export const useShoppingStore = create<StoreState>()(
           return { items: [], purchaseHistory: updatedHistory };
         }),
 
-      // Evaluates past purchase timestamps against item life cycles
       checkAndTriggerDepletionAlerts: () => {
         const history = get().purchaseHistory;
         const now = Date.now();

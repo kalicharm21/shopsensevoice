@@ -34,6 +34,12 @@ export interface ShoppingItem {
   source?: 'manual' | 'plan' | 'voice' | 'recommendation';
   createdAt?: number;
   updatedAt?: number;
+  substituteSuggestion?: {
+    name: string;
+    price: number;
+    unit?: string;
+    reason?: string;
+  };
 }
 
 export interface ShoppingList {

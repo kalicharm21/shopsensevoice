@@ -5,34 +5,82 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-const CHAT_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.6-27b'];
+const CHAT_MODELS = [
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3.6-27b'
+];
 
-const HEALTHY_SUBSTITUTES_MAP: Record<string, { name: string; price: number; unit: string; category: string; image: string; reason: string }> = {
+const HEALTHY_SUBSTITUTES_MAP: Record<
+  string,
+  { name: string; price: number; unit: string; category: string; image: string; reason: string }
+> = {
   sugar: { name: 'Organic Jaggery Powder', price: 65, unit: 'kg', category: 'Pantry', image: '🍯', reason: 'Unrefined, mineral-rich natural sweetener' },
   'white sugar': { name: 'Organic Jaggery Powder', price: 65, unit: 'kg', category: 'Pantry', image: '🍯', reason: 'Low-glycemic unrefined sweetener' },
-  milk: { name: 'Unsweetened Almond Milk', price: 140, unit: 'litre', category: 'Dairy & Plant', image: '🥛', reason: 'Lactose-free, gut-friendly plant milk' },
-  'dairy milk': { name: 'Unsweetened Oat Milk', price: 155, unit: 'litre', category: 'Dairy & Plant', image: '🥛', reason: 'Creamy plant-based dairy alternative' },
+  milk: { name: 'Unsweetened Almond Milk', price: 140, unit: 'litre', category: 'Dairy', image: '🥛', reason: 'Lactose-free, gut-friendly plant milk' },
+  'dairy milk': { name: 'Unsweetened Oat Milk', price: 155, unit: 'litre', category: 'Dairy', image: '🥛', reason: 'Creamy plant-based dairy alternative' },
   butter: { name: 'Cold-Pressed Olive Oil', price: 290, unit: 'bottle', category: 'Pantry', image: '🫒', reason: 'Heart-healthy monounsaturated fats' },
   bread: { name: 'Artisan Sourdough Loaf', price: 85, unit: 'loaf', category: 'Bakery', image: '🍞', reason: 'Naturally fermented and gut-friendly' },
   'white bread': { name: '100% Whole Wheat Bread', price: 55, unit: 'loaf', category: 'Bakery', image: '🍞', reason: 'Higher fiber with zero refined flour' },
   rice: { name: 'Organic Brown Rice', price: 110, unit: 'kg', category: 'Pantry', image: '🌾', reason: 'High-fiber complex carbohydrate' },
-  oil: { name: 'Cold-Pressed Mustard / Coconut Oil', price: 180, unit: 'litre', category: 'Pantry', image: '🥥', reason: 'Unrefined, nutrient-dense cooking oil' },
+  oil: { name: 'Cold-Pressed Mustard Oil', price: 180, unit: 'litre', category: 'Pantry', image: '🥥', reason: 'Unrefined, nutrient-dense cooking oil' },
   maida: { name: 'Organic Multigrain Atta', price: 75, unit: 'kg', category: 'Pantry', image: '🌾', reason: 'Zero refined flour, rich in dietary fiber' },
-  cola: { name: 'Sparkling Kombucha', price: 95, unit: 'bottle', category: 'Snacks & Sips', image: '🍵', reason: 'Probiotic-rich refreshing beverage' },
+  cola: { name: 'Sparkling Kombucha', price: 95, unit: 'bottle', category: 'Beverages', image: '🍵', reason: 'Probiotic-rich refreshing beverage' },
 };
 
 export async function POST(req: Request) {
   try {
-    const { transcript, currentCart = [], purchaseHistory = [], language = 'en-IN' } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const rawTranscript = body.transcript || body.query || '';
+    const pendingItemContext = (body.pendingItemContext || '').trim();
+    const currentCart = body.currentCart || [];
+    const purchaseHistory = body.purchaseHistory || [];
+    const language = body.language || 'en-IN';
 
-    if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
+    if (!rawTranscript || typeof rawTranscript !== 'string' || !rawTranscript.trim()) {
       return NextResponse.json({ error: 'No transcript provided' }, { status: 400 });
     }
 
+    const transcriptText = rawTranscript.trim();
     const currentMonth = new Date().toLocaleString('en-IN', { month: 'long' });
 
-    const systemPrompt = `You are an AI Voice Shopping Assistant designed for grocery & household items in INR (₹).
-Output strict raw valid JSON only. Do not use <think> tags or markdown backticks.
+    // 1. Resolve Multi-Turn Context
+    let effectiveQuery = transcriptText;
+    if (pendingItemContext) {
+      if (/^\d+$/.test(transcriptText)) {
+        effectiveQuery = `Add ${transcriptText} pieces of ${pendingItemContext}`;
+      } else if (!transcriptText.toLowerCase().includes(pendingItemContext.toLowerCase())) {
+        effectiveQuery = `Add ${transcriptText} ${pendingItemContext}`;
+      }
+    }
+
+    // 2. Ambiguity Detection (Only on Turn 1 when no pending context exists)
+    const isBareSingleItem = /^(add|buy|get|need|daalo|kharido)\s+([a-zA-Z\s]+)$/i.test(effectiveQuery);
+    const hasUnitsOrNumbers = /\d+|kg|kilo|litre|liter|packet|pack|bunch|dozen|gm|gram|bottle|can|box|pieces|piece/i.test(effectiveQuery);
+    const isRecipeQuery = /ingredients|recipe|for making|bnani hai|dinner for|lunch for|dish|food/i.test(effectiveQuery);
+
+    if (!pendingItemContext && isBareSingleItem && !hasUnitsOrNumbers && !isRecipeQuery) {
+      const extractedItem = effectiveQuery.replace(/^(add|buy|get|need|daalo|kharido)\s+/i, '').trim();
+      if (extractedItem && extractedItem.split(/\s+/).length <= 2) {
+        return NextResponse.json({
+          action: 'CLARIFY',
+          intent: 'UNKNOWN',
+          confidence: 0.95,
+          clarificationRequired: true,
+          pendingContext: extractedItem,
+          ai_response_text: `How many kgs or pieces of ${extractedItem} would you like?`,
+          feedbackMessage: `How many kgs or pieces of ${extractedItem} would you like?`,
+          responseMessage: `How many kgs or pieces of ${extractedItem} would you like?`,
+          items: []
+        });
+      }
+    }
+
+    // 3. Groq Universal Parsing & Decomposition Prompt
+    const systemPrompt = `You are a high-intelligence Voice Shopping Assistant for Indian grocery, recipes, household items, deals, and pantry restocks in INR (₹).
+Decompose culinary queries (e.g., "ingredients for Pav Bhaji", "Biryani for 4", "Pasta dinner") into 4-6 required grocery items with realistic units (kg, pack, bottle), estimated INR prices, and categories.
+Parse multi-item additions and numerical quantity updates cleanly.
+Output STRICT raw valid JSON only. Do not wrap in markdown backticks and never output <think> tags.
 
 Context:
 - Current Month: ${currentMonth}
@@ -40,26 +88,18 @@ Context:
 - User History: ${JSON.stringify(purchaseHistory)}
 - Language: ${language}
 
-Action Classifications (CRITICAL):
-1. "INFO": User asks a question, conversational remark, or inquiry about discounts/shipping/features (e.g. "Will I get more discount?", "How does delivery work?", "What are the payment options?"). DO NOT ADD ANY ITEMS TO CART. Leave items array EMPTY []. Provide a helpful answer in ai_response_text.
-2. "NOT_FOUND": User is asking for an item that is non-existent, invalid, or out of stock. Leave items array EMPTY []. Set ai_response_text to explain that the item is unavailable and optionally suggest a valid alternative.
-3. "ADD": User explicitly issues a command to buy/add specific grocery products.
-4. "ADD_BUNDLE": User explicitly requests recipe ingredients (e.g. "Add items for Pav Bhaji").
-5. "GET_DEALS": User asks to see discounts or sales.
-6. "GET_SEASONAL": User asks for seasonal produce.
-7. "GET_RUNNING_LOW": User asks what needs restock.
-8. "GET_SUBSTITUTE": User asks for alternatives.
-9. "UPDATE_QUANTITY", "REMOVE", "SEARCH", "SET_BUDGET": Handle accordingly.
-
-JSON Template:
+JSON Schema:
 {
-  "action": "ADD" | "ADD_BUNDLE" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO" | "NOT_FOUND",
-  "items": [],
-  "update_target": null,
+  "action": "ADD" | "ADD_BUNDLE" | "REMOVE" | "UPDATE_QUANTITY" | "SEARCH" | "GET_SEASONAL" | "GET_RUNNING_LOW" | "GET_SUBSTITUTE" | "GET_DEALS" | "SET_BUDGET" | "INFO",
+  "clarificationRequired": false,
+  "items": [
+    { "name": string, "quantity": number, "unit": string, "price": number, "category": string, "image": string, "brand": string | null }
+  ],
+  "update_target": { "name": string, "quantity": number, "unit": string } | null,
   "search_results": [],
   "suggestions": [],
   "budget_limit": null,
-  "ai_response_text": "Spoken clear feedback string"
+  "ai_response_text": string
 }`;
 
     let rawText = '';
@@ -68,51 +108,48 @@ JSON Template:
         const response = await groq.chat.completions.create({
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Parse user input: "${transcript}"` },
+            { role: 'user', content: `Parse user input: "${effectiveQuery}"` },
           ],
           model,
           temperature: 0.1,
-          max_tokens: 1000,
+          max_tokens: 1200,
         });
         rawText = response.choices[0]?.message?.content?.trim() || '';
         if (rawText) break;
       } catch (err: any) {
-        console.warn('Groq model failover:', err?.message);
+        console.warn(`Groq model ${model} failover:`, err?.message);
       }
     }
 
-    if (!rawText) {
-      // Deterministic fallback for conversational and deal queries
-      if (/discount|offer|coupon|more discount|saving|how much|free/i.test(transcript)) {
-        return NextResponse.json({
-          action: 'INFO',
-          items: [],
-          suggestions: [],
-          ai_response_text: "You get free delivery on orders above ₹499! Check out our Live Sales & Deals for extra discounts."
-        });
-      }
+    let parsed: any;
+    try {
+      let cleaned = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+      const firstBrace = cleaned.indexOf('{');
+      const lastBrace = cleaned.lastIndexOf('}');
+      parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    } catch {
+      const qtyMatch = effectiveQuery.match(/(\d+(?:\.\d+)?)/);
+      const parsedQty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
+      const itemName = pendingItemContext || effectiveQuery.replace(/\d+/g, '').replace(/add|kg|kilo|pack|piece|pieces|litre/gi, '').trim() || 'Item';
 
-      return NextResponse.json({
-        action: 'INFO',
-        items: [],
-        suggestions: [],
-        ai_response_text: "I didn't quite catch that. Could you please specify the grocery item you'd like to add or search for?"
-      });
+      parsed = {
+        action: 'ADD',
+        clarificationRequired: false,
+        items: [{
+          name: itemName.charAt(0).toUpperCase() + itemName.slice(1),
+          quantity: parsedQty,
+          unit: effectiveQuery.includes('kg') ? 'kg' : effectiveQuery.includes('litre') ? 'litre' : 'pack',
+          price: 60 * parsedQty,
+          category: 'Produce',
+          image: '🛒',
+          brand: null
+        }],
+        ai_response_text: `Added ${parsedQty} ${itemName} to your list.`
+      };
     }
 
-    let cleaned = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
-
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    let parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-
-    // Safeguard: Never allow INFO or NOT_FOUND actions to return items
-    if (parsed.action === 'INFO' || parsed.action === 'NOT_FOUND') {
-      parsed.items = [];
-    }
-
-    // Attach substitutes when adding items
+    // Attach substitute suggestions if applicable
     if ((parsed.action === 'ADD' || parsed.action === 'ADD_BUNDLE') && Array.isArray(parsed.items)) {
       parsed.items = parsed.items.map((item: any) => {
         if (!item.substituteSuggestion && item.name) {
@@ -127,14 +164,22 @@ JSON Template:
       });
     }
 
-    return NextResponse.json(parsed);
+    return NextResponse.json({
+      ...parsed,
+      intent: parsed.action || 'ADD',
+      confidence: 0.95,
+      clarificationRequired: false,
+      feedbackMessage: parsed.ai_response_text || 'Processed your request.',
+      responseMessage: parsed.ai_response_text || 'Processed your request.'
+    });
   } catch (error: any) {
     console.error('Groq Execution Pipeline Error:', error);
     return NextResponse.json({
       action: 'INFO',
+      intent: 'INFO',
+      clarificationRequired: false,
       items: [],
-      suggestions: [],
-      ai_response_text: "I couldn't process that command. Please try again with a specific grocery item."
+      ai_response_text: "I couldn't process that command. Please try again."
     });
   }
 }

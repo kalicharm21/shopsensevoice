@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useShoppingStore } from '@/store/useShoppingStore';
 import { Navbar } from '@/components/Navbar';
 import { HomeView } from '@/components/HomeView';
 import { ListsView } from '@/components/ListsView';
@@ -21,9 +22,16 @@ import {
   UserProfile 
 } from '@/types';
 
-export default function ShopSenseApp() {
+export default function CompleteVoiceCart() {
+  const { 
+    items, 
+    purchaseHistory, 
+    checkAndTriggerDepletionAlerts, 
+    addItem 
+  } = useShoppingStore();
+
   const [activeTab, setActiveTab] = useState<string>('home');
-  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedWhyRec, setSelectedWhyRec] = useState<Recommendation | null>(null);
 
@@ -32,6 +40,25 @@ export default function ShopSenseApp() {
     displayName: 'Ishaan Mittal',
     photoURL: ''
   });
+
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([
+    {
+      id: 'list-1',
+      title: 'Weekly Groceries',
+      budget: 1500,
+      items: [
+        { id: 'i-1', name: 'Farm Fresh Potatoes', category: 'Produce', quantity: 2, unit: 'kg', estimatedPrice: 80, completed: false, brand: 'Fresh' },
+        { id: 'i-2', name: 'Toned Milk', category: 'Dairy', quantity: 2, unit: 'L', estimatedPrice: 136, completed: true, brand: 'Amul' }
+      ]
+    }
+  ]);
+  const [activeListId, setActiveListId] = useState<string>('list-1');
+
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([
+    { id: 'p-1', name: 'Whole Dairy Milk', category: 'Dairy', quantity: 1, unit: 'bottle', estimatedRemaining: 20, status: 'critically_low', predictedRunoutDate: 'Tomorrow', averageConsumptionRate: 'Every 2 days' },
+    { id: 'p-2', name: 'Fresh Spinach', category: 'Produce', quantity: 1, unit: 'bunch', estimatedRemaining: 80, status: 'expiring_soon', predictedRunoutDate: 'In 2 days', averageConsumptionRate: 'Cook within 48 hrs' },
+    { id: 'p-3', name: 'Basmati Rice', category: 'Pantry', quantity: 5, unit: 'kg', estimatedRemaining: 75, status: 'good', predictedRunoutDate: 'In 3 weeks', averageConsumptionRate: '1 kg/week' }
+  ]);
 
   const [activePlan, setActivePlan] = useState<ShoppingPlan | null>({
     id: 'plan-1',
@@ -54,25 +81,6 @@ export default function ShopSenseApp() {
       { reason: 'Whole Wheat Pav instead of white bread', savings: 15 }
     ]
   });
-
-  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([
-    {
-      id: 'list-1',
-      title: 'Weekly Groceries',
-      budget: 1500,
-      items: [
-        { id: 'i-1', name: 'Farm Fresh Potatoes', category: 'Produce', quantity: 2, unit: 'kg', estimatedPrice: 80, completed: false, brand: 'Fresh' },
-        { id: 'i-2', name: 'Toned Milk', category: 'Dairy', quantity: 2, unit: 'L', estimatedPrice: 136, completed: true, brand: 'Amul' }
-      ]
-    }
-  ]);
-  const [activeListId, setActiveListId] = useState<string>('list-1');
-
-  const [pantryItems, setPantryItems] = useState<PantryItem[]>([
-    { id: 'p-1', name: 'Whole Dairy Milk', category: 'Dairy', quantity: 1, unit: 'bottle', estimatedRemaining: 20, status: 'critically_low', predictedRunoutDate: 'Tomorrow', averageConsumptionRate: 'Every 2 days' },
-    { id: 'p-2', name: 'Fresh Spinach', category: 'Produce', quantity: 1, unit: 'bunch', estimatedRemaining: 80, status: 'expiring_soon', predictedRunoutDate: 'In 2 days', averageConsumptionRate: 'Cook within 48 hrs' },
-    { id: 'p-3', name: 'Basmati Rice', category: 'Pantry', quantity: 5, unit: 'kg', estimatedRemaining: 75, status: 'good', predictedRunoutDate: 'In 3 weeks', averageConsumptionRate: '1 kg/week' }
-  ]);
 
   const [recommendations] = useState<Recommendation[]>([
     {
@@ -127,18 +135,24 @@ export default function ShopSenseApp() {
     }
   ]);
 
+  useEffect(() => {
+    checkAndTriggerDepletionAlerts();
+  }, [checkAndTriggerDepletionAlerts]);
+
+  const activeList = shoppingLists.find((l) => l.id === activeListId) || shoppingLists[0] || null;
+
   return (
-    <div className="min-h-screen bg-[#FAF9F6] text-[#353535] flex flex-col font-sans">
+    <main className="min-h-screen w-full bg-[#FAF9F6] text-[#353535] antialiased overflow-x-hidden flex flex-col font-sans">
       <Navbar
         currentTab={activeTab}
         onNavigate={setActiveTab}
-        onOpenVoice={() => setIsVoiceOpen(true)}
+        onOpenVoice={() => setIsVoiceModalOpen(true)}
         user={user}
         activeListsCount={shoppingLists.length}
         unreadRecommendationsCount={recommendations.length}
       />
 
-      <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl w-full mx-auto">
+      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6">
         {activeTab === 'home' && (
           <HomeView
             user={user}
@@ -146,27 +160,29 @@ export default function ShopSenseApp() {
             shoppingLists={shoppingLists}
             pantryItems={pantryItems}
             recommendations={recommendations}
-            onOpenVoice={() => setIsVoiceOpen(true)}
+            onOpenVoice={() => setIsVoiceModalOpen(true)}
             onOpenPlan={(plan) => {
               setActivePlan(plan);
               setIsPlanModalOpen(true);
             }}
             onOpenWhy={(rec) => setSelectedWhyRec(rec)}
             onAddToList={(item) => {
-              const targetList = shoppingLists[0];
-              if (!targetList) return;
-              setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-                ...l,
-                items: [...l.items, {
-                  id: `item-${Date.now()}`,
-                  name: item.name || 'New Item',
-                  category: item.category || 'Pantry',
-                  quantity: item.quantity || 1,
-                  unit: item.unit || 'pack',
-                  estimatedPrice: item.estimatedPrice || 50,
-                  completed: false
-                }]
-              } : l));
+              if (activeList) {
+                setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+                  ...l,
+                  items: [...l.items, {
+                    id: `item-${Date.now()}`,
+                    name: item.name || 'New Item',
+                    category: item.category || 'Pantry',
+                    quantity: item.quantity || 1,
+                    unit: item.unit || 'pack',
+                    estimatedPrice: item.estimatedPrice || 50,
+                    completed: false,
+                    source: 'manual'
+                  }]
+                } : l));
+              }
+              setActiveTab('lists');
             }}
             onNavigateTab={setActiveTab}
             onOpenReceiptScanner={() => alert('Receipt scanner ready!')}
@@ -202,7 +218,7 @@ export default function ShopSenseApp() {
                 items: l.items.filter(i => i.id !== itemId)
               } : l));
             }}
-            onOpenVoice={() => setIsVoiceOpen(true)}
+            onOpenVoice={() => setIsVoiceModalOpen(true)}
             onMoveCompletedToPantry={(listId) => {
               const target = shoppingLists.find(l => l.id === listId);
               if (!target) return;
@@ -238,26 +254,27 @@ export default function ShopSenseApp() {
             }}
             onDeleteItem={(id) => setPantryItems(prev => prev.filter(i => i.id !== id))}
             onAutoRestockLow={(low) => {
-              const targetList = shoppingLists[0];
-              if (!targetList) return;
-              setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-                ...l,
-                items: [
-                  ...l.items,
-                  ...low.map(item => ({
-                    id: `item-${Date.now()}-${item.id}`,
-                    name: item.name,
-                    category: item.category,
-                    quantity: item.quantity,
-                    unit: item.unit,
-                    estimatedPrice: 60,
-                    completed: false
-                  }))
-                ]
-              } : l));
-              setActiveTab('lists');
+              if (activeList) {
+                setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+                  ...l,
+                  items: [
+                    ...l.items,
+                    ...low.map(item => ({
+                      id: `item-${Date.now()}-${item.id}`,
+                      name: item.name,
+                      category: item.category,
+                      quantity: item.quantity,
+                      unit: item.unit,
+                      estimatedPrice: 60,
+                      completed: false,
+                      source: 'recommendation' as const
+                    }))
+                  ]
+                } : l));
+                setActiveTab('lists');
+              }
             }}
-            onOpenVoice={() => setIsVoiceOpen(true)}
+            onOpenVoice={() => setIsVoiceModalOpen(true)}
           />
         )}
 
@@ -266,20 +283,22 @@ export default function ShopSenseApp() {
             recommendations={recommendations}
             onOpenWhy={(rec) => setSelectedWhyRec(rec)}
             onAddToList={(product) => {
-              const targetList = shoppingLists[0];
-              if (!targetList) return;
-              setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-                ...l,
-                items: [...l.items, {
-                  id: `item-${Date.now()}`,
-                  name: product.name,
-                  category: product.category,
-                  quantity: 1,
-                  unit: product.unit || 'pack',
-                  estimatedPrice: product.price,
-                  completed: false
-                }]
-              } : l));
+              if (activeList) {
+                setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+                  ...l,
+                  items: [...l.items, {
+                    id: `item-${Date.now()}`,
+                    name: product.name,
+                    category: product.category,
+                    quantity: 1,
+                    unit: product.unit || 'pack',
+                    estimatedPrice: product.price,
+                    completed: false,
+                    source: 'recommendation' as const
+                  }]
+                } : l));
+                setActiveTab('lists');
+              }
             }}
           />
         )}
@@ -289,57 +308,68 @@ export default function ShopSenseApp() {
             pantry={pantryItems}
             catalog={DEMO_PRODUCTS}
             onAddSuggestionToList={(item) => {
-              const targetList = shoppingLists[0];
-              if (!targetList) return;
-              setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-                ...l,
-                items: [...l.items, {
-                  id: `item-${Date.now()}`,
-                  name: item.name || 'Item',
-                  category: item.category || 'Pantry',
-                  quantity: item.quantity || 1,
-                  unit: item.unit || 'pack',
-                  estimatedPrice: item.estimatedPrice || 60,
-                  completed: false
-                }]
-              } : l));
+              if (activeList) {
+                setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+                  ...l,
+                  items: [...l.items, {
+                    id: `item-${Date.now()}`,
+                    name: item.name || 'Item',
+                    category: item.category || 'Pantry',
+                    quantity: item.quantity || 1,
+                    unit: item.unit || 'pack',
+                    estimatedPrice: item.estimatedPrice || 60,
+                    completed: false,
+                    source: 'manual' as const
+                  }]
+                } : l));
+                setActiveTab('lists');
+              }
             }}
-            onOpenVoiceSearch={() => setIsVoiceOpen(true)}
+            onOpenVoiceSearch={() => setIsVoiceModalOpen(true)}
           />
         )}
 
         {activeTab === 'activity' && (
           <ActivityView activities={activities} />
         )}
-      </main>
+      </div>
 
       <VoiceModal
-        isOpen={isVoiceOpen}
-        onClose={() => setIsVoiceOpen(false)}
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
         pantry={pantryItems}
-        activeList={shoppingLists.find(l => l.id === activeListId) || null}
+        activeList={activeList}
         existingLists={shoppingLists}
         onApplyIntent={(res) => {
-          if (res.items && res.items.length > 0) {
-            const targetList = shoppingLists.find(l => l.id === activeListId) || shoppingLists[0];
-            if (targetList) {
-              setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-                ...l,
-                items: [
-                  ...l.items,
-                  ...res.items!.map(item => ({
-                    id: `voice-item-${Date.now()}-${Math.random()}`,
-                    name: item.name,
-                    category: item.category || 'Pantry',
-                    quantity: item.quantity || 1,
-                    unit: item.unit || 'pack',
-                    estimatedPrice: item.maxPrice || 60,
-                    brand: item.brand,
-                    completed: false
-                  }))
-                ]
-              } : l));
-            }
+          if (res.items && res.items.length > 0 && activeList) {
+            setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+              ...l,
+              items: [
+                ...l.items,
+                ...res.items!.map(item => ({
+                  id: `voice-item-${Date.now()}-${Math.random()}`,
+                  name: item.name,
+                  category: item.category || 'Pantry',
+                  quantity: item.quantity || 1,
+                  unit: item.unit || 'pack',
+                  estimatedPrice: item.maxPrice || 60,
+                  brand: item.brand,
+                  completed: false,
+                  source: 'voice' as const
+                }))
+              ]
+            } : l));
+
+            res.items.forEach(item => addItem({
+              name: item.name,
+              quantity: item.quantity || 1,
+              unit: item.unit || 'pack',
+              category: item.category || 'Pantry',
+              price: item.maxPrice || 60,
+              brand: item.brand || undefined
+            }));
+
+            setActiveTab('lists');
           }
         }}
       />
@@ -355,27 +385,27 @@ export default function ShopSenseApp() {
         onClose={() => setIsPlanModalOpen(false)}
         pantry={pantryItems}
         onAddPlanToList={(plan) => {
-          const targetList = shoppingLists[0];
-          if (!targetList) return;
-          setShoppingLists(prev => prev.map(l => l.id === targetList.id ? {
-            ...l,
-            items: [
-              ...l.items,
-              ...plan.neededItems.map(item => ({
-                id: `plan-item-${Date.now()}-${Math.random()}`,
-                name: item.name,
-                category: item.category || 'Pantry',
-                quantity: item.quantity,
-                unit: item.unit,
-                estimatedPrice: item.estimatedPrice,
-                completed: false,
-                source: 'plan' as const
-              }))
-            ]
-          } : l));
-          setActiveTab('lists');
+          if (activeList) {
+            setShoppingLists(prev => prev.map(l => l.id === activeList.id ? {
+              ...l,
+              items: [
+                ...l.items,
+                ...plan.neededItems.map(item => ({
+                  id: `plan-item-${Date.now()}-${Math.random()}`,
+                  name: item.name,
+                  category: item.category || 'Pantry',
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  estimatedPrice: item.estimatedPrice,
+                  completed: false,
+                  source: 'plan' as const
+                }))
+              ]
+            } : l));
+            setActiveTab('lists');
+          }
         }}
       />
-    </div>
+    </main>
   );
 }
